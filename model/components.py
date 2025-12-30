@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 """
-Embedding Pipeline
+Embeddings Pipeline
 """
 class GPTDataset (Dataset):
     def __init__(self, token_ids, max_length, stride):
@@ -24,17 +24,23 @@ class GPTDataset (Dataset):
     def __getitem__(self, idx):
         return self.input_ids[idx], self.target_ids[idx]
 
-def dataloader(token_ids, batch_size, max_length, stride, shuffle=True, drop_last=True, num_workers = 0):
+def dataloader(token_ids, batch_size, 
+               max_length, stride, 
+               shuffle=True, drop_last=True,
+               num_workers = 0):
     
     dataset = GPTDataset(token_ids, max_length, stride)
 
     # Create dataloader
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, num_workers=num_workers)
+    dataloader = DataLoader(dataset, 
+                            batch_size=batch_size, 
+                            shuffle=shuffle, drop_last=drop_last,
+                            num_workers=num_workers)
 
     return dataloader
 
 """
-Masked Multihead Attention Mechanism
+Masked Multihead Attention
 """
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_in, d_out, context_length, dropout, num_heads, qkv_bias=False):
@@ -49,13 +55,12 @@ class MultiHeadAttention(nn.Module):
         self.W_query = nn.Linear(d_in, d_out, bias=qkv_bias)
         self.W_key = nn.Linear(d_in, d_out, bias=qkv_bias)
         self.W_value = nn.Linear(d_in, d_out, bias=qkv_bias)
-        self.out_proj = nn.Linear(d_out, d_out)  # Linear layer to combine head outputs
+        self.out_proj = nn.Linear(d_out, d_out) # Linear layer to combine head outputs
         self.dropout = nn.Dropout(dropout)
         self.register_buffer(
             "mask",
             torch.triu(torch.ones(context_length, context_length),
-                       diagonal=1)
-        )
+                       diagonal=1))
 
     def forward(self, input):
         b, num_tokens, d_in = input.shape # batch size, number of tokens, input dimension
@@ -64,7 +69,7 @@ class MultiHeadAttention(nn.Module):
         queries = self.W_query(input)
         values = self.W_value(input)
 
-        # We implicitly split the matrix by adding a `num_heads` dimension
+        # We implicitly split the matrix by adding a num_heads dimension
         # (batch_size, num_tokens, d_out) -> (batch_size, num_tokens, num_heads, head_dim)
         keys = keys.view(b, num_tokens, self.num_heads, self.head_dim) 
         values = values.view(b, num_tokens, self.num_heads, self.head_dim)
@@ -94,7 +99,7 @@ class MultiHeadAttention(nn.Module):
         return context_vec
 
 """
-LLM Architecture
+Transformer Block
 """
 class LayerNorm(nn.Module):
     def __init__(self, emb_dim):
@@ -159,3 +164,33 @@ class TransformerBlock(nn.Module):
         input = self.drop_shortcut(input)
         input = input + shortcut
         return input
+
+"""
+GPT Architecture
+"""
+class GPTModel(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.tok_emb = nn.Embedding(config["vocab_size"], config["emb_dim"])
+        self.pos_emb = nn.Embedding(config["context_length"], config["emb_dim"])
+        self.drop_emb = nn.Dropout(config["drop_rate"])
+        self.trf_blocks = nn.Sequential(
+            *[TransformerBlock(config) for _ in range(config["n_layers"])])
+        self.final_norm = LayerNorm(config["emb_dim"])
+        self.out_head = nn.Linear(
+            config["emb_dim"], config["vocab_size"], bias=False
+        )
+
+    def forward(self, in_idx):
+        batch_size, seq_len = in_idx.shape
+        tok_embeds = self.tok_emb(in_idx)
+        pos_embeds = self.pos_emb(
+          torch.arange(seq_len, device=in_idx.device)
+        )
+        input = tok_embeds + pos_embeds
+        input = self.drop_emb(input)
+        input = self.trf_blocks(input)
+        input = self.final_norm(input)
+        logits = self.out_head(input)
+        return logits
+
