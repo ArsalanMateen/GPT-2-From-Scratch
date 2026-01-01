@@ -194,3 +194,36 @@ class GPTModel(nn.Module):
         logits = self.out_head(input)
         return logits
 
+"""
+Generating Text from model
+(logits to text, greedy decoding)
+"""
+def generate_text(model, idx, max_new_tokens, context_size): 
+    for _ in range(max_new_tokens):
+        idx_cond = idx[:, -context_size:]   
+        """ 
+        In Pytorch, by default, it is always building computation graph 
+        of the model in the background that is used for the 
+        backpropagation algorithm, and if we don't train the model, 
+        this very inefficent
+        """
+        # suppressing the generation of the gradient computation, the computation graph
+        with torch.no_grad():  
+            logits = model(idx_cond)
+            
+        logits = logits[:, -1, :]
+        probas = torch.softmax(logits, dim=-1)          
+        idx_next = torch.argmax(probas, dim=-1, keepdim=True)   
+        idx = torch.cat((idx, idx_next), dim=1)
+        
+    return idx
+
+def text_to_token_ids(raw_text, tokenizer):
+    encoded = tokenizer.encode(raw_text, allowed_special={'<|endoftext|>'})
+    encoded_tensor = torch.tensor(encoded).unsqueeze(0)   
+    return encoded_tensor
+
+def token_ids_to_text(token_ids, tokenizer):
+    flat = token_ids.squeeze(0)               
+    return tokenizer.decode(flat.tolist())
+    
