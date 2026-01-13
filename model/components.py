@@ -2,16 +2,18 @@ import tiktoken
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import matplotlib.pyplot as plt
 
 """
 Embeddings Pipeline
 """
 class GPTDataset (Dataset):
-    def __init__(self, token_ids, max_length, stride):
+    def __init__(self, raw_text, tokenizer, max_length, stride):
         self.input_ids = []
         self.target_ids = []
 
-        # data sampling with a sliding window
+        token_ids = tokenizer.encode(raw_text, allowed_special={"<|endoftext|"})
+
         for i in range(0, len(token_ids) - max_length, stride):
             input_chunk = token_ids[i:i + max_length]
             target_chunk = token_ids[i+1:i + max_length+1]
@@ -24,18 +26,14 @@ class GPTDataset (Dataset):
     def __getitem__(self, idx):
         return self.input_ids[idx], self.target_ids[idx]
 
-def dataloader(token_ids, batch_size, 
-               max_length, stride, 
-               shuffle=True, drop_last=True,
-               num_workers = 0):
-    
-    dataset = GPTDataset(token_ids, max_length, stride)
+def create_dataloader(raw_text, batch_size, max_length, stride, shuffle = True, drop_last = True, num_workers = 0):
 
-    # Create dataloader
-    dataloader = DataLoader(dataset, 
-                            batch_size=batch_size, 
-                            shuffle=shuffle, drop_last=drop_last,
-                            num_workers=num_workers)
+    tokenizer = tiktoken.get_encoding("gpt2")
+
+    dataset = GPTDataset(raw_text, tokenizer, max_length, stride)
+
+    dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, num_workers=num_workers)
 
     return dataloader
 
@@ -70,12 +68,12 @@ class MultiHeadAttention(nn.Module):
         values = self.W_value(input)
 
         # We implicitly split the matrix by adding a num_heads dimension
-        # (batch_size, num_tokens, d_out) -> (batch_size, num_tokens, num_heads, head_dim)
+        # (batch_size, num_tokens, d_out) ~ (batch_size, num_tokens, num_heads, head_dim)
         keys = keys.view(b, num_tokens, self.num_heads, self.head_dim) 
         values = values.view(b, num_tokens, self.num_heads, self.head_dim)
         queries = queries.view(b, num_tokens, self.num_heads, self.head_dim)
 
-        # Transpose: (batch_size, num_tokens, num_heads, head_dim) -> (batch_size, num_heads, num_tokens, head_dim)
+        # Transpose: (batch_size, num_tokens, num_heads, head_dim) ~ (batch_size, num_heads, num_tokens, head_dim)
         keys = keys.transpose(1, 2)
         queries = queries.transpose(1, 2)
         values = values.transpose(1, 2)
@@ -267,3 +265,33 @@ def evaluate_model(model, train_loader, val_loader, device, eval_iter):
     model.train()
     return train_loss, val_loss
 
+"""
+Temperature scallig, Top-k sampling
+"""
+def generate(model, idx, max_new_tokens, context_size,
+             temperature=0.0, top_k=None, eos_id=None):
+    for _ in range(max_new_tokens):
+        idx_cond = idx[:, -context_size:]
+        with torch.no_grad():
+            logits = model(idx_cond)
+        logits = logits[:, -1, :]
+
+        if top_k is not None:               
+            top_logits, _ = torch.topk(logits, top_k)
+            min_val = top_logits[:, -1]
+            logits = torch.where(
+            logits < min_val,
+            torch.tensor(float('-inf')).to(logits.device), logits)
+
+        if temperature > 0.0:                 
+            logits = logits / temperature
+            probs = torch.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probs, num_samples=1)
+        else:   
+            idx_next = torch.argmax(logits, dim=-1, keepdim=True)
+        
+        if idx_next == eos_id:             
+            break
+        idx = torch.cat((idx, idx_next), dim=1)
+    return idx
+    
