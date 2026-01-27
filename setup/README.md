@@ -44,12 +44,12 @@ uv venv --python=python3.12
 ```
 **Activate the virtual environment**
 ```bash
-.\venv\Scripts\activate
+.venv\Scripts\activate
 ```
 
 &nbsp;
 > **Note**
-> You need to activate the virtual environment each time you start a new terminal session. For example, if you restart your terminal or computer and want to continue working on project the next day, simply run `.\venv\Scripts\activate` in project directory to reactivate your virtual environment.
+> You need to activate the virtual environment each time you start a new terminal session. For example, if you restart your terminal or computer and want to continue working on project the next day, simply run `.venv\Scripts\activate` in project directory to reactivate your virtual environment.
 
 &nbsp;
 ### 3. Install Required Packages
